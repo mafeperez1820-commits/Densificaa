@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DENSIFICA — Simulador de Edificación Vertical</title>
+    
+    <!-- Tailwind CSS CDN with safe fallback config -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        window.tailwind = window.tailwind || {};
+        try {
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        colors: {
+                            architectural: {
+                                50: '#f8fafc',
+                                100: '#f1f5f9',
+                                200: '#e2e8f0',
+                                800: '#1e293b',
+                                900: '#0f172a',
+                                accent: '#0284c7', // Architectural Blue
+                                teal: '#0d9488',   // Office Teal
+                                indigo: '#4f46e5'  // Residential Indigo
+                            }
+                        },
+                        fontFamily: {
+                            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                            mono: ['JetBrains Mono', 'Menlo', 'monospace']
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Tailwind configuration deferred or handled via fallback.', e);
+        }
+    </script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- React 18 & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel Standalone -->
+    <script crossorigin src="https://unpkg.com/@babel/standalone/min/babel.min.js"></script>
+
+    <!-- Three.js & OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            color: #0f172a;
+            overflow-x: hidden;
+        }
+        .font-mono-num {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        canvas {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-900 flex flex-col">
+    <div id="root" class="flex-1 flex flex-col"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- STREAMING_CHUNK:Defining SVG icon helpers... ---
+        const IconBuilding = () => (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+        );
+        const IconLayers = () => (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+        );
+        const IconCalculator = () => (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        );
+        const IconRefresh = () => (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        );
+        const IconPlay = () => (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        );
+        const IconPlus = () => (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v16m8-8H4"/></svg>
+        );
+        const IconTrash = () => (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        );
+        const IconEdit = () => (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+        );
+
+        // --- STREAMING_CHUNK:Defining Colombian peso and number formatters... ---
+        const formatCOP = (val) => {
+            return new Intl.NumberFormat('es-CO', {
+                style: 'currency',
+                currency: 'COP',
+                maximumFractionDigits: 0
+            }).format(val);
+        };
+
+        const formatNum = (val, decimals = 2) => {
+            return Number(val).toLocaleString('es-CO', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+        };
+
+        // --- STREAMING_CHUNK:Initializing main App component and state... ---
+        function App() {
+            const [view, setView] = useState('intro'); // 'intro' | 'dashboard'
+            const [toast, setToast] = useState(null);
+
+            // Project Parameters
+            const [lotWidth, setLotWidth] = useState(20);
+            const [lotLength, setLotLength] = useState(30);
+            const [fixedCosts, setFixedCosts] = useState(150000000);
+            const [quadraticB, setQuadraticB] = useState(15);
+
+            // Cost per m2 parameters by use
+            const [rates, setRates] = useState({
+                Comercial: 3500000,
+                Oficinas: 2800000,
+                Residencial: 2200000
+            });
+
+            // Default heights by use
+            const defaultHeights = {
+                Comercial: 3.25,
+                Oficinas: 3.00,
+                Residencial: 2.80
+            };
+
+            // Levels array
+            const [levels, setLevels] = useState([
+                { id: 1, use: 'Comercial', height: 3.25 },
+                { id: 2, use: 'Oficinas', height: 3.00 },
+                { id: 3, use: 'Residencial', height: 2.80 },
+                { id: 4, use: 'Residencial', height: 2.80 }
+            ]);
+
+            // Edit level modal state
+            const [editingLevel, setEditingLevel] = useState(null);
+
+            // UI Tabs inside dashboard: 'simulator' | 'math' | 'charts'
+            const [activeTab, setActiveTab] = useState('simulator');
+            const [gridVisible, setGridVisible] = useState(true);
+
+            // Toast helper
+            const showToast = (msg) => {
+                setToast(msg);
+                setTimeout(() => setToast(null), 3000);
+            };
+
+            // --- STREAMING_CHUNK:Computing architectural calculations... ---
+            const lotArea = useMemo(() => Math.max(0, lotWidth * lotLength), [lotWidth, lotLength]);
+            
+            const totalHeight = useMemo(() => {
+                return levels.reduce((sum, lvl) => sum + Number(lvl.height), 0);
+            }, [levels]);
+
+            const totalVolume = useMemo(() => {
+                return lotArea * totalHeight;
+            }, [lotArea, totalHeight]);
+
+            const builtArea = useMemo(() => {
+                return lotArea * levels.length;
+            }, [lotArea, levels]);
+
+            // Quadratic core area formula: A(x) = -x^2 + bx, where x = number of levels
+            const coreArea = useMemo(() => {
+                const x = levels.length;
+                if (x === 0) return 0;
+                const calc = -Math.pow(x, 2) + quadraticB * x;
+                const minCore = builtArea * 0.05;
+                return Math.max(minCore, calc);
+            }, [levels.length, quadraticB, builtArea]);
+
+            const usableArea = useMemo(() => {
+                return Math.max(0, builtArea - coreArea);
+            }, [builtArea, coreArea]);
+
+            const totalCost = useMemo(() => {
+                const levelsCost = levels.reduce((sum, lvl) => {
+                    const rate = rates[lvl.use] || 2500000;
+                    return sum + (lotArea * rate);
+                }, 0);
+                return levelsCost + Number(fixedCosts);
+            }, [levels, lotArea, rates, fixedCosts]);
+
+            const averageCostPerM2 = useMemo(() => {
+                if (builtArea === 0) return 0;
+                return totalCost / builtArea;
+            }, [totalCost, builtArea]);
+
+            // --- STREAMING_CHUNK:Defining project action handlers... ---
+            const handleAddLevel = (use = 'Residencial') => {
+                const newId = levels.length > 0 ? Math.max(...levels.map(l => l.id)) + 1 : 1;
+                const newHeight = defaultHeights[use] || 2.80;
+                setLevels([...levels, { id: newId, use, height: newHeight }]);
+                showToast(`Nivel ${newId} (${use}) agregado con éxito.`);
+            };
+
+            const handleDeleteLevel = (id) => {
+                if (levels.length <= 1) {
+                    showToast("El edificio debe tener al menos un nivel.");
+                    return;
+                }
+                setLevels(levels.filter(l => l.id !== id));
+                showToast("Nivel eliminado.");
+            };
+
+            const handleReset = () => {
+                setLotWidth(20);
+                setLotLength(30);
+                setFixedCosts(150000000);
+                setQuadraticB(15);
+                setRates({ Comercial: 3500000, Oficinas: 2800000, Residencial: 2200000 });
+                setLevels([
+                    { id: 1, use: 'Comercial', height: 3.25 },
+                    { id: 2, use: 'Oficinas', height: 3.00 },
+                    { id: 3, use: 'Residencial', height: 2.80 },
+                    { id: 4, use: 'Residencial', height: 2.80 }
+                ]);
+                showToast("Proyecto reiniciado a valores por defecto.");
+            };
+
+            const handleLoadExample = () => {
+                setLotWidth(25);
+                setLotLength(40);
+                setFixedCosts(220000000);
+                setQuadraticB(18);
+                setLevels([
+                    { id: 1, use: 'Comercial', height: 3.50 },
+                    { id: 2, use: 'Comercial', height: 3.25 },
+                    { id: 3, use: 'Oficinas', height: 3.00 },
+                    { id: 4, use: 'Oficinas', height: 3.00 },
+                    { id: 5, use: 'Residencial', height: 2.80 },
+                    { id: 6, use: 'Residencial', height: 2.80 }
+                ]);
+                showToast("Configuración de ejemplo cargada.");
+            };
+
+            const handleDemoMode = () => {
+                handleLoadExample();
+                setActiveTab('simulator');
+                showToast("Modo Demostración Académica activado.");
+            };
+
+            // --- STREAMING_CHUNK:Rendering intro screen view... ---
+            if (view === 'intro') {
+                return (
+                    <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between p-6 sm:p-12 relative overflow-hidden">
+                        <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#38bdf8 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
+                        
+                        <div className="max-w-5xl mx-auto w-full z-10 flex flex-col items-start pt-12 sm:pt-20">
+                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-mono mb-6">
+                                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+                                ÁLGEBRA Y GEOMETRÍA ANALÍTICA APLICADA
+                            </div>
+                            
+                            <h1 className="text-5xl sm:text-7xl font-light tracking-tight mb-4">
+                                DENSIFICA<span className="text-blue-500 font-normal">.</span>
+                            </h1>
+                            <p className="text-xl sm:text-2xl font-light text-slate-300 max-w-2xl mb-8">
+                                Simulador Académico y Profesional de Edificación Vertical y Costos Paramétricos.
+                            </p>
+                            <p className="text-sm sm:text-base text-slate-400 max-w-xl mb-12 leading-relaxed">
+                                Explora en tiempo real cómo las decisiones volumétricas, la superposición de niveles, las ecuaciones lineales de costos y las funciones cuadráticas del núcleo de circulación interactúan en la arquitectura contemporánea.
+                            </p>
+                            
+                            <div className="flex flex-wrap gap-4 items-center">
+                                <button 
+                                    onClick={() => setView('dashboard')}
+                                    className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg shadow-lg hover:shadow-blue-500/25 transition-all flex items-center gap-3 text-lg group"
+                                >
+                                    INICIAR SIMULADOR 
+                                    <span className="group-hover:translate-x-1 transition-transform">→</span>
+                                </button>
+                                <button 
+                                    onClick={() => { handleLoadExample(); setView('dashboard'); }}
+                                    className="px-6 py-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium rounded-lg transition-all"
+                                >
+                                    Cargar Proyecto de Ejemplo
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="max-w-5xl mx-auto w-full z-10 pt-12 border-t border-slate-800 flex flex-col sm:flex-row justify-between text-xs text-slate-500 gap-4">
+                            <p>DENSIFICA · Arquitectura 2026-II</p>
+                            <p>Desarrollado para sustentaciones académicas de alto rendimiento.</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            // --- STREAMING_CHUNK:Rendering main dashboard layout... ---
+            return (
+                <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+                    {toast && (
+                        <div className="fixed top-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-lg shadow-xl border border-slate-700 flex items-center gap-3 text-sm animate-fade-in">
+                            <div className="w-2 h-2 rounded-full bg-blue-400"></div>
+                            {toast}
+                        </div>
+                    )}
+
+                    <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sticky top-0 z-40">
+                        <div className="flex items-center gap-4">
+                            <div>
+                                <div className="flex items-center gap-3">
+                                    <h1 className="text-xl font-bold tracking-tight">DENSIFICA</h1>
+                                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-mono font-medium flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                        Proyecto activo
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-500">Simulador de Densificación y Costos de Edificación Vertical</p>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button 
+                                onClick={handleReset}
+                                className="px-3.5 py-2 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg flex items-center gap-2 transition-all shadow-sm"
+                            >
+                                <IconRefresh /> Reiniciar
+                            </button>
+                            <button 
+                                onClick={handleLoadExample}
+                                className="px-3.5 py-2 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg flex items-center gap-2 transition-all shadow-sm"
+                            >
+                                Cargar ejemplo
+                            </button>
+                            <button 
+                                onClick={handleDemoMode}
+                                className="px-3.5 py-2 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg flex items-center gap-2 transition-all shadow-sm"
+                            >
+                                <IconPlay /> Modo Demo
+                            </button>
+                            <button 
+                                onClick={() => setView('intro')}
+                                className="px-3 py-2 text-xs text-slate-400 hover:text-slate-600 ml-2"
+                            >
+                                Salir
+                            </button>
+                        </div>
+                    </header>
+
+                    <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden">
+                        
+                        {/* Left Configuration Panel */}
+                        <div className="lg:col-span-4 xl:col-span-3 bg-white border-r border-slate-200 flex flex-col h-[calc(100vh-73px)] overflow-y-auto p-5">
+                            
+                            <div className="flex bg-slate-100 p-1 rounded-lg mb-6 text-xs font-medium">
+                                <button 
+                                    onClick={() => setActiveTab('simulator')}
+                                    className={`flex-1 py-2 rounded-md transition-all ${activeTab === 'simulator' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+                                >
+                                    Configuración
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('math')}
+                                    className={`flex-1 py-2 rounded-md transition-all ${activeTab === 'math' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+                                >
+                                    Matemática
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('charts')}
+                                    className={`flex-1 py-2 rounded-md transition-all ${activeTab === 'charts' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+                                >
+                                    Gráficas
+                                </button>
+                            </div>
+
+                            {activeTab === 'simulator' && (
+                                <div className="space-y-6">
+                                    <div className="space-y-3">
+                                        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">01. Lote del Proyecto</h3>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs text-slate-600 mb-1">Ancho (m)</label>
+                                                <input 
+                                                    type="number" 
+                                                    min="5" 
+                                                    max="200" 
+                                                    value={lotWidth} 
+                                                    onChange={(e) => setLotWidth(Math.max(1, Number(e.target.value)))}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono-num focus:outline-none focus:border-blue-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-slate-600 mb-1">Largo (m)</label>
+                                                <input 
+                                                    type="number" 
+                                                    min="5" 
+                                                    max="200" 
+                                                    value={lotLength} 
+                                                    onChange={(e) => setLotLength(Math.max(1, Number(e.target.value)))}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono-num focus:outline-none focus:border-blue-500"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">Área del lote:</span>
+                                            <span className="font-mono-num font-semibold text-slate-900">{formatNum(lotArea, 2)} m²</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 pt-4 border-t border-slate-100">
+                                        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">02. Parámetros Técnicos</h3>
+                                        
+                                        <div>
+                                            <label className="block text-xs text-slate-600 mb-1">Costos Fijos ($ COP)</label>
+                                            <input 
+                                                type="number" 
+                                                step="10000000"
+                                                value={fixedCosts} 
+                                                onChange={(e) => setFixedCosts(Math.max(0, Number(e.target.value)))}
+                                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono-num focus:outline-none focus:border-blue-500"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs text-slate-600 mb-1">Parámetro b (Núcleo: A(x) = -x² + bx)</label>
+                                            <input 
+                                                type="number" 
+                                                min="5"
+                                                max="50"
+                                                value={quadraticB} 
+                                                onChange={(e) => setQuadraticB(Math.max(1, Number(e.target.value)))}
+                                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono-num focus:outline-none focus:border-blue-500"
+                                            />
+                                        </div>
+
+                                        <div className="space-y-2 pt-2">
+                                            <label className="block text-xs text-slate-600">Valor / m² por Uso (COP)</label>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <div>
+                                                    <span className="text-[10px] text-slate-400">Comercial</span>
+                                                    <input 
+                                                        type="number" 
+                                                        step="100000"
+                                                        value={rates.Comercial}
+                                                        onChange={(e) => setRates({...rates, Comercial: Number(e.target.value)})}
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-mono-num"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] text-slate-400">Oficinas</span>
+                                                    <input 
+                                                        type="number" 
+                                                        step="100000"
+                                                        value={rates.Oficinas}
+                                                        onChange={(e) => setRates({...rates, Oficinas: Number(e.target.value)})}
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-mono-num"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] text-slate-400">Residencial</span>
+                                                    <input 
+                                                        type="number" 
+                                                        step="100000"
+                                                        value={rates.Residencial}
+                                                        onChange={(e) => setRates({...rates, Residencial: Number(e.target.value)})}
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-mono-num"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 pt-4 border-t border-slate-100">
+                                        <div className="flex items-center justify-between">
+                                            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">03. Niveles ({levels.length})</h3>
+                                            <div className="flex gap-1">
+                                                <button 
+                                                    onClick={() => handleAddLevel('Comercial')}
+                                                    className="px-2 py-1 text-[10px] bg-sky-50 text-sky-700 border border-sky-200 rounded hover:bg-sky-100 transition-colors"
+                                                    title="Agregar nivel comercial"
+                                                >
+                                                    + Com
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleAddLevel('Oficinas')}
+                                                    className="px-2 py-1 text-[10px] bg-teal-50 text-teal-700 border border-teal-200 rounded hover:bg-teal-100 transition-colors"
+                                                    title="Agregar nivel oficinas"
+                                                >
+                                                    + Ofi
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleAddLevel('Residencial')}
+                                                    className="px-2 py-1 text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 rounded hover:bg-indigo-100 transition-colors"
+                                                    title="Agregar nivel residencial"
+                                                >
+                                                    + Res
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <button 
+                                            onClick={() => handleAddLevel('Residencial')}
+                                            className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg text-xs flex items-center justify-center gap-2 transition-all shadow-sm"
+                                        >
+                                            <IconPlus /> AGREGAR NIVEL RESIDENCIAL
+                                        </button>
+
+                                        <div className="space-y-2 mt-3 max-h-72 overflow-y-auto pr-1">
+                                            {levels.slice().reverse().map((lvl, index) => {
+                                                const actualIdx = levels.length - index;
+                                                const badgeColor = lvl.use === 'Comercial' ? 'bg-sky-500' : lvl.use === 'Oficinas' ? 'bg-teal-500' : 'bg-indigo-500';
+                                                return (
+                                                    <div key={lvl.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2 hover:border-slate-300 transition-all">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-2.5 h-8 rounded-full ${badgeColor}`}></div>
+                                                            <div>
+                                                                <div className="text-xs font-semibold">NIVEL {actualIdx < 10 ? '0' + actualIdx : actualIdx}</div>
+                                                                <div className="text-[11px] text-slate-500">{lvl.use} · <span className="font-mono-num">{lvl.height}m</span></div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <button 
+                                                                onClick={() => setEditingLevel(lvl)}
+                                                                className="p-1.5 text-slate-400 hover:text-slate-700 rounded transition-colors"
+                                                                title="Editar nivel"
+                                                            >
+                                                                <IconEdit />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleDeleteLevel(lvl.id)}
+                                                                className="p-1.5 text-slate-400 hover:text-red-600 rounded transition-colors"
+                                                                title="Eliminar nivel"
+                                                            >
+                                                                <IconTrash />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'math' && (
+                                <div className="space-y-5 text-sm">
+                                    <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Matemática Aplicada</h3>
+                                    
+                                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                                        <div className="text-xs font-mono font-bold text-blue-600">01 — DECIMALES</div>
+                                        <h4 className="font-semibold text-slate-800">Altura Total del Edificio</h4>
+                                        <p className="text-xs text-slate-600 leading-relaxed font-mono bg-white p-2 rounded border border-slate-200">
+                                            H = Σ hᵢ = {levels.map(l => l.height).join(' + ')} = <span className="font-bold text-slate-900">{formatNum(totalHeight, 2)} m</span>
+                                        </p>
+                                        <p className="text-xs text-slate-500">
+                                            La altura total se obtiene sumando las alturas de cada nivel, considerando las diferentes alturas libres según el uso.
+                                        </p>
+                                    </div>
+
+                                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                                        <div className="text-xs font-mono font-bold text-teal-600">02 — ECUACIÓN LINEAL</div>
+                                        <h4 className="font-semibold text-slate-800">Presupuesto Estimado</h4>
+                                        <p className="text-xs text-slate-600 leading-relaxed font-mono bg-white p-2 rounded border border-slate-200">
+                                            C = A × V + C₀<br/>
+                                            C = {formatNum(builtArea, 0)} m² × Promedio + {formatCOP(fixedCosts)}<br/>
+                                            <span className="font-bold text-slate-900">{formatCOP(totalCost)}</span>
+                                        </p>
+                                        <p className="text-xs text-slate-500">
+                                            El costo aumenta linealmente de acuerdo con el área construida por nivel y el valor unitario por metro cuadrado, sumando los costos fijos.
+                                        </p>
+                                    </div>
+
+                                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                                        <div className="text-xs font-mono font-bold text-indigo-600">03 — ECUACIÓN CUADRÁTICA</div>
+                                        <h4 className="font-semibold text-slate-800">Núcleo de Circulación</h4>
+                                        <p className="text-xs text-slate-600 leading-relaxed font-mono bg-white p-2 rounded border border-slate-200">
+                                            A(x) = -x² + bx<br/>
+                                            A({levels.length}) = -({levels.length})² + {quadraticB}({levels.length}) = <span className="font-bold text-slate-900">{formatNum(coreArea, 2)} m²</span>
+                                        </p>
+                                        <p className="text-xs text-slate-500">
+                                            Modelado cuadrático del área destinada a escaleras, ascensores y ductos técnicos en función del número de niveles (x).
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'charts' && (
+                                <div className="space-y-6 text-sm">
+                                    <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Analítica Gráfica</h3>
+                                    
+                                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-xs font-semibold text-slate-700">Crecimiento Acumulado de Costos</span>
+                                            <span className="text-[10px] font-mono text-slate-400">COP</span>
+                                        </div>
+                                        <div className="h-32 flex items-end gap-1.5 pt-4 border-b border-slate-200">
+                                            {levels.map((_, i) => {
+                                                const partialLevels = levels.slice(0, i + 1);
+                                                const partialCost = partialLevels.reduce((s, l) => s + (lotArea * rates[l.use]), fixedCosts);
+                                                const maxCost = totalCost || 1;
+                                                const heightPct = Math.max(15, (partialCost / maxCost) * 100);
+                                                return (
+                                                    <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                                                        <div 
+                                                            className="w-full bg-blue-600 rounded-t transition-all group-hover:bg-blue-500"
+                                                            style={{ height: `${heightPct}%` }}
+                                                        ></div>
+                                                        <span className="text-[9px] font-mono text-slate-500">N{i+1}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="text-[11px] text-slate-500 text-center">Presupuesto final: {formatCOP(totalCost)}</div>
+                                    </div>
+
+                                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-xs font-semibold text-slate-700">Eficiencia Espacial</span>
+                                            <span className="text-[10px] font-mono text-slate-400">Área (m²)</span>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div>
+                                                <div className="flex justify-between text-xs mb-1">
+                                                    <span className="text-slate-600">Área Útil</span>
+                                                    <span className="font-mono-num font-semibold">{formatNum(usableArea, 1)} m²</span>
+                                                </div>
+                                                <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
+                                                    <div className="bg-emerald-500 h-full rounded-full transition-all" style={{ width: `${builtArea > 0 ? (usableArea/builtArea)*100 : 0}%` }}></div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="flex justify-between text-xs mb-1">
+                                                    <span className="text-slate-600">Núcleo Circulación</span>
+                                                    <span className="font-mono-num font-semibold">{formatNum(coreArea, 1)} m²</span>
+                                                </div>
+                                                <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
+                                                    <div className="bg-amber-500 h-full rounded-full transition-all" style={{ width: `${builtArea > 0 ? (coreArea/builtArea)*100 : 0}%` }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
+
+                        {/* Center 3D Viewport & Bottom Metrics */}
+                        <div className="lg:col-span-8 xl:col-span-9 flex flex-col h-[calc(100vh-73px)]">
+                            
+                            <div className="flex-1 relative bg-slate-900 overflow-hidden">
+                                <ThreeCanvas 
+                                    levels={levels} 
+                                    lotWidth={lotWidth} 
+                                    lotLength={lotLength} 
+                                    gridVisible={gridVisible} 
+                                    rates={rates}
+                                />
+
+                                <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-slate-900/80 backdrop-blur border border-slate-700/50 p-1.5 rounded-xl shadow-2xl">
+                                    <button 
+                                        onClick={() => setGridVisible(!gridVisible)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${gridVisible ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+                                    >
+                                        Grid
+                                    </button>
+                                </div>
+
+                                <div className="absolute bottom-4 left-4 z-10 pointer-events-none hidden sm:block">
+                                    <div className="bg-slate-900/80 backdrop-blur border border-slate-700/50 px-4 py-2.5 rounded-xl text-xs text-slate-300 shadow-2xl space-y-1">
+                                        <div className="font-semibold text-white flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                            VISOR 3D ORBITAL
+                                        </div>
+                                        <div className="text-[11px] text-slate-400">Rotar: Clic izquierdo + Arrastrar | Zoom: Scroll | Desplazar: Clic derecho</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border-t border-slate-200 p-4 grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-4 z-20">
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">Altura Total</div>
+                                    <div className="text-lg font-bold font-mono-num text-slate-900 mt-0.5">{formatNum(totalHeight, 2)} <span className="text-xs font-normal text-slate-500">m</span></div>
+                                </div>
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">Niveles</div>
+                                    <div className="text-lg font-bold font-mono-num text-slate-900 mt-0.5">{levels.length}</div>
+                                </div>
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">Ár. Construida</div>
+                                    <div className="text-lg font-bold font-mono-num text-slate-900 mt-0.5">{formatNum(builtArea, 1)} <span className="text-xs font-normal text-slate-500">m²</span></div>
+                                </div>
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">Área Útil</div>
+                                    <div className="text-lg font-bold font-mono-num text-emerald-600 mt-0.5">{formatNum(usableArea, 1)} <span className="text-xs font-normal text-slate-500">m²</span></div>
+                                </div>
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">Volumen</div>
+                                    <div className="text-lg font-bold font-mono-num text-slate-900 mt-0.5">{formatNum(totalVolume, 0)} <span className="text-xs font-normal text-slate-500">m³</span></div>
+                                </div>
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">Núcleo A(x)</div>
+                                    <div className="text-lg font-bold font-mono-num text-amber-600 mt-0.5">{formatNum(coreArea, 1)} <span className="text-xs font-normal text-slate-500">m²</span></div>
+                                </div>
+                                <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100 col-span-2 sm:col-span-2 xl:col-span-1">
+                                    <div className="text-[11px] text-blue-600 uppercase tracking-wider font-medium">Presupuesto</div>
+                                    <div className="text-base font-bold font-mono-num text-blue-900 mt-0.5 truncate" title={formatCOP(totalCost)}>{formatCOP(totalCost)}</div>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    {editingLevel && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-scale-up">
+                                <h3 className="text-lg font-bold mb-4">Editar Nivel</h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-600 mb-1">Uso del Nivel</label>
+                                        <select 
+                                            value={editingLevel.use}
+                                            onChange={(e) => setEditingLevel({...editingLevel, use: e.target.value})}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                                        >
+                                            <option value="Comercial">Comercial</option>
+                                            <option value="Oficinas">Oficinas</option>
+                                            <option value="Residencial">Residencial</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-600 mb-1">Altura de Piso (m)</label>
+                                        <input 
+                                            type="number" 
+                                            step="0.05"
+                                            min="2.0"
+                                            max="6.0"
+                                            value={editingLevel.height}
+                                            onChange={(e) => setEditingLevel({...editingLevel, height: Number(e.target.value)})}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono-num focus:outline-none focus:border-blue-500"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-3 mt-6">
+                                    <button 
+                                        onClick={() => setEditingLevel(null)}
+                                        className="px-4 py-2 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            setLevels(levels.map(l => l.id === editingLevel.id ? editingLevel : l));
+                                            setEditingLevel(null);
+                                            showToast("Nivel actualizado.");
+                                        }}
+                                        className="px-4 py-2 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                                    >
+                                        Guardar Cambios
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // --- STREAMING_CHUNK:Defining Three.js 3D canvas component... ---
+        function ThreeCanvas({ levels, lotWidth, lotLength, gridVisible, rates }) {
+            const mountRef = useRef(null);
+
+            useEffect(() => {
+                if (!mountRef.current) return;
+                const container = mountRef.current;
+                const width = container.clientWidth;
+                const height = container.clientHeight;
+
+                const scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x0f172a);
+
+                const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+                camera.position.set(45, 35, 55);
+
+                const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setSize(width, height);
+                renderer.shadowMap.enabled = true;
+                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                container.appendChild(renderer.domElement);
+
+                const controls = new THREE.OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+                controls.maxPolarAngle = Math.PI / 2 - 0.05;
+
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+                scene.add(ambientLight);
+
+                const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+                dirLight.position.set(40, 60, 40);
+                dirLight.castShadow = true;
+                dirLight.shadow.mapSize.width = 2048;
+                dirLight.shadow.mapSize.height = 2048;
+                scene.add(dirLight);
+
+                const lotGeo = new THREE.BoxGeometry(lotWidth, 0.5, lotLength);
+                const lotMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 });
+                const lotMesh = new THREE.Mesh(lotGeo, lotMat);
+                lotMesh.position.y = -0.25;
+                lotMesh.receiveShadow = true;
+                scene.add(lotMesh);
+
+                let gridHelper = null;
+                if (gridVisible) {
+                    const maxDim = Math.max(lotWidth, lotLength);
+                    gridHelper = new THREE.GridHelper(maxDim * 1.5, 20, 0x0284c7, 0x334155);
+                    gridHelper.position.y = 0.01;
+                    scene.add(gridHelper);
+                }
+
+                let currentY = 0;
+                levels.forEach((lvl, index) => {
+                    const h = Number(lvl.height);
+                    const yPos = currentY + h / 2;
+
+                    let color = 0x4f46e5;
+                    if (lvl.use === 'Comercial') color = 0x0284c7;
+                    else if (lvl.use === 'Oficinas') color = 0x0d9488;
+
+                    const boxGeo = new THREE.BoxGeometry(lotWidth * 0.95, h * 0.9, lotLength * 0.95);
+                    const boxMat = new THREE.MeshStandardMaterial({ 
+                        color: color, 
+                        roughness: 0.3,
+                        metalness: 0.1,
+                        transparent: true,
+                        opacity: 0.9
+                    });
+                    const boxMesh = new THREE.Mesh(boxGeo, boxMat);
+                    boxMesh.position.set(0, yPos, 0);
+                    boxMesh.castShadow = true;
+                    boxMesh.receiveShadow = true;
+                    scene.add(boxMesh);
+
+                    const coreGeo = new THREE.BoxGeometry(lotWidth * 0.25, h, lotLength * 0.25);
+                    const coreMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 });
+                    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+                    coreMesh.position.set(0, yPos, 0);
+                    coreMesh.castShadow = true;
+                    scene.add(coreMesh);
+
+                    const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+                    const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 1, transparent: true, opacity: 0.3 });
+                    const wireframe = new THREE.LineSegments(edgesGeo, edgesMat);
+                    wireframe.position.set(0, yPos, 0);
+                    scene.add(wireframe);
+
+                    currentY += h;
+                });
+
+                let animationFrameId;
+                const animate = () => {
+                    animationFrameId = requestAnimationFrame(animate);
+                    controls.update();
+                    renderer.render(scene, camera);
+                };
+                animate();
+
+                const handleResize = () => {
+                    if (!container) return;
+                    const w = container.clientWidth;
+                    const h = container.clientHeight;
+                    camera.aspect = w / h;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(w, h);
+                };
+                window.addEventListener('resize', handleResize);
+
+                return () => {
+                    window.removeEventListener('resize', handleResize);
+                    cancelAnimationFrame(animationFrameId);
+                    if (container && renderer.domElement) {
+                        container.removeChild(renderer.domElement);
+                    }
+                };
+            }, [levels, lotWidth, lotLength, gridVisible]);
+
+            return <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />;
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
